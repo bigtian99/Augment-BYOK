@@ -43,6 +43,9 @@ jobs:
             upstream.lock.json
             .cache/reports/upstream-analysis.json
 
+      - name: Prepare Rolling Release Assets
+        run: cp dist/upstream.lock.json dist.upstream.lock.json
+
       - name: Publish Rolling Release
         uses: ncipollo/release-action@v1
         with:
@@ -54,5 +57,5 @@ jobs:
           artifacts: |
             dist/*.vsix
             dist/endpoint-coverage.report.md
-            dist/upstream.lock.json
+            dist.upstream.lock.json
             upstream.lock.json

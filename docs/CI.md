@@ -10,6 +10,9 @@
 - `dist/endpoint-coverage.report.md`（LLM 端点覆盖矩阵）
 - `.cache/reports/upstream-analysis.json`（workflow artifact：端点全集/call kind）
 
+备注：
+- GitHub Release assets 不能同时存在两个同名文件；因此 `build-release` 上传到 Release 时，会把 `dist/upstream.lock.json` 复制为 `dist.upstream.lock.json`（仅用于 Release 资产命名去重）。
+
 fail-fast（直接阻断构建）：
 - patch needle 缺失（避免 silent break）
 - 命中 `autoAuth` 字符串
