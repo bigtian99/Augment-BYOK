@@ -335,42 +335,43 @@ function repairAnthropicToolUsePairs(messages, opts) {
     if (pending) {
       if (role === "user") {
         const blocks = normalizeAnthropicBlocks(msg?.content);
-        const hasToolResult = blocks.some((b) => b && b.type === "tool_result");
-        if (!hasToolResult) {
-          injectMissing();
-          out.push(msg);
-          continue;
-        }
-
-        const newBlocks = [];
+        const toolResultBlocks = [];
+        const otherBlocks = [];
         let changed = false;
+        let sawToolResult = false;
+        let sawNonToolBeforeToolResult = false;
+
         for (const b of blocks) {
           if (b.type === "tool_result") {
+            sawToolResult = true;
+            if (sawNonToolBeforeToolResult) changed = true; // tool_result 之前出现了非 tool_result，需要重排到前面
             const id = normalizeString(b.tool_use_id);
             if (id && pending.has(id)) {
               pending.delete(id);
-              newBlocks.push(b);
+              toolResultBlocks.push(b);
             } else {
-              newBlocks.push(buildOrphanAnthropicToolResultAsTextBlock(b, opts));
+              otherBlocks.push(buildOrphanAnthropicToolResultAsTextBlock(b, opts));
               report.converted_orphan_tool_results += 1;
               changed = true;
             }
-          } else newBlocks.push(b);
+          } else {
+            if (!sawToolResult) sawNonToolBeforeToolResult = true;
+            otherBlocks.push(b);
+          }
         }
 
-        // 保证：紧随 tool_use 的这一条 user 消息中包含所有 pending 的 tool_result；
+        // 保证：紧随 tool_use 的这一条 user 消息中包含所有 pending 的 tool_result（且置于最前），
         // 否则某些上游会认为 tool_use 没有被正确回填而报错。
         if (pending.size) {
           for (const tc of pending.values()) {
-            newBlocks.push(buildMissingAnthropicToolResultBlock({ toolUseId: tc.toolUseId, toolName: tc.toolName, input: tc.input }));
+            toolResultBlocks.push(buildMissingAnthropicToolResultBlock({ toolUseId: tc.toolUseId, toolName: tc.toolName, input: tc.input }));
             report.injected_missing_tool_results += 1;
           }
           pending = null;
           changed = true;
-        } else if (pending.size === 0) {
-          pending = null;
-        }
+        } else pending = null;
 
+        const newBlocks = toolResultBlocks.length ? [...toolResultBlocks, ...otherBlocks] : otherBlocks;
         out.push(changed ? { ...msg, content: newBlocks } : msg);
         continue;
       }
