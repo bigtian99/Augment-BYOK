@@ -62,6 +62,10 @@
     persisted && typeof persisted === "object" && persisted.providerExpanded && typeof persisted.providerExpanded === "object" && !Array.isArray(persisted.providerExpanded)
       ? persisted.providerExpanded
       : {};
+  const persistedSelfTestProviderKeys =
+    persisted && typeof persisted === "object" && Array.isArray(persisted.selfTestProviderKeys)
+      ? uniq(persisted.selfTestProviderKeys.map((k) => normalizeStr(k)).filter(Boolean))
+      : [];
 
   let uiState = {
     cfg: {},
@@ -73,6 +77,7 @@
     modal: null,
     dirty: false,
     selfTest: { running: false, logs: [], report: null },
+    selfTestProviderKeys: persistedSelfTestProviderKeys,
     sideCollapsed: persistedSideCollapsed,
     endpointSearch: persistedEndpointSearch
   };
@@ -202,8 +207,8 @@
 
         if (providerType === "openai_responses") {
           if (level === "custom") continue;
-          const effort = level === "extra" ? "extra_high" : level;
-          if (effort === "low" || effort === "medium" || effort === "high" || effort === "extra_high") {
+          const effort = level;
+          if (effort === "low" || effort === "medium" || effort === "high" || effort === "xhigh") {
             const reasoning = rd.reasoning && typeof rd.reasoning === "object" && !Array.isArray(rd.reasoning) ? rd.reasoning : {};
             reasoning.effort = effort;
             rd.reasoning = reasoning;
@@ -223,7 +228,7 @@
 
         if (providerType === "anthropic") {
           if (level === "custom") continue;
-          const budgetByLevel = { low: 1024, medium: 2048, high: 4096, extra: 8192 };
+          const budgetByLevel = { low: 1024, medium: 2048, high: 4096, xhigh: 8192 };
           const budget = budgetByLevel[level];
           if (budget) {
             const thinking = rd.thinking && typeof rd.thinking === "object" && !Array.isArray(rd.thinking) ? rd.thinking : {};
@@ -258,6 +263,18 @@
     }
 
     cfg.providers = providers;
+  }
+
+  function gatherSelfTestProviderKeysFromDom() {
+    const els = Array.from(document.querySelectorAll("input[type=\"checkbox\"][data-selftest-provider-key]"));
+    const keys = [];
+    for (const el of els) {
+      if (!el || typeof el.getAttribute !== "function") continue;
+      if (!el.checked) continue;
+      const key = normalizeStr(el.getAttribute("data-selftest-provider-key"));
+      if (key) keys.push(key);
+    }
+    return uniq(keys);
   }
 
   function applyRulesEditsFromDom(cfg) {
@@ -481,7 +498,7 @@
 
     if (a === "runSelfTest") {
       const requestId = newRequestId("selfTest");
-      postToExtension({ type: "runSelfTest", requestId, config: gatherConfigFromDom() });
+      postToExtension({ type: "runSelfTest", requestId, config: gatherConfigFromDom(), providerKeys: gatherSelfTestProviderKeysFromDom() });
       setUiState({ selfTest: { running: true, logs: [], report: null }, status: "Self Test starting..." }, { preserveEdits: true });
       return;
     }
@@ -494,6 +511,21 @@
 
     if (a === "clearSelfTest") {
       setUiState({ selfTest: { running: false, logs: [], report: null }, status: "Self Test cleared." }, { preserveEdits: true });
+      return;
+    }
+
+    if (a === "selfTestSelectAllProviders") {
+      const cfg = gatherConfigFromDom();
+      const providers = Array.isArray(cfg.providers) ? cfg.providers : [];
+      const keys = uniq(providers.map((p, idx) => normalizeStr(p?.id) || `idx:${idx}`).filter(Boolean));
+      setPersistedState({ selfTestProviderKeys: keys });
+      setUiState({ selfTestProviderKeys: keys, status: "Self Test providers: 全选。" }, { preserveEdits: true });
+      return;
+    }
+
+    if (a === "selfTestClearSelectedProviders") {
+      setPersistedState({ selfTestProviderKeys: [] });
+      setUiState({ selfTestProviderKeys: [], status: "Self Test providers: 已清空（=全部）。" }, { preserveEdits: true });
       return;
     }
 
@@ -656,6 +688,12 @@
 
   function handleChange(el) {
     if (!el || typeof el.matches !== "function") return;
+
+    if (el.matches("input[type=\"checkbox\"][data-selftest-provider-key]")) {
+      const keys = gatherSelfTestProviderKeysFromDom();
+      setPersistedState({ selfTestProviderKeys: keys });
+      return setUiState({ selfTestProviderKeys: keys }, { preserveEdits: true });
+    }
 
     if (el.matches("#runtimeEnabledToggle")) {
       const enable = Boolean(el.checked);

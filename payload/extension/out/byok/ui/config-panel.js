@@ -216,6 +216,8 @@ function createHandlers({ vscode, ctx, cfgMgr, state, panel }) {
         return;
       }
       const requestId = normalizeString(msg?.requestId);
+      const providerKeysRaw = msg && typeof msg === "object" ? msg.providerKeys : null;
+      const providerKeys = Array.isArray(providerKeysRaw) ? providerKeysRaw : [];
       const cfg = msg && typeof msg === "object" && msg.config && typeof msg.config === "object" ? msg.config : cfgMgr.get();
       const timeoutMs = DEFAULT_UPSTREAM_TIMEOUT_MS;
 
@@ -230,6 +232,7 @@ function createHandlers({ vscode, ctx, cfgMgr, state, panel }) {
           cfg,
           timeoutMs: Math.min(60000, timeoutMs),
           abortSignal: selfTestController.signal,
+          providerKeys,
           onEvent: (ev) => {
             const t = normalizeString(ev?.type);
             if (t === "log") post(panel, { type: "selfTestLog", ...(requestId ? { requestId } : {}), line: String(ev?.line || "") });
