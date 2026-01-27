@@ -63,10 +63,30 @@ async function selfTestToolsModelExec({ toolDefinitions, timeoutMs, abortSignal,
     results.set(name, { ok: nextOk, detail: normalizeString(detail) || "" });
   };
 
-  // 一些工具在真实 Augment 环境里属于 remoteToolHost（走 /agents/* 或 /relay/agents/*）。
-  // 在 BYOK/代理环境未实现 Agents API 时，这类工具可能稳定 404，但这并不影响本地 sidecar 工具与核心 BYOK 能力。
-  // Self Test 仍会记录该工具的失败细节，但不会让 toolsExec 作为“全局健康度”失败。
-  const OPTIONAL_TOOL_FAILURES = new Set(["web-search"]);
+  // 部分工具走 Augment Agents API（/agents/* 或 /relay/agents/*），在 BYOK/代理环境未实现 Agents 路由时会稳定失败。
+  // 规则：Agents 路由相关工具允许失败；其余工具必须严格通过。
+  const OPTIONAL_AGENTS_TOOL_NAMES = new Set(["web-search"]);
+
+  const isAgentsRoutedFailure = (detail) => {
+    const s = normalizeString(detail).toLowerCase();
+    if (!s) return false;
+    // run-remote-tool 是 remoteToolHost 的执行入口；codebase-retrieval 也属于 agents tools。
+    return (
+      s.includes("agents/run-remote-tool") ||
+      s.includes("agents/codebase-retrieval") ||
+      s.includes("agents/list-remote-tools") ||
+      s.includes("agents/revoke-tool-access") ||
+      s.includes("agents/edit-file") ||
+      s.includes("/relay/agents/")
+    );
+  };
+
+  const isOptionalAgentsToolFailure = (toolName, detail) => {
+    const name = normalizeString(toolName);
+    if (!name) return false;
+    if (OPTIONAL_AGENTS_TOOL_NAMES.has(name)) return true;
+    return isAgentsRoutedFailure(detail);
+  };
 
   const callIfPresent = async (name, input) => {
     if (!byName.has(name)) return { ok: true, skipped: true, detail: "tool not in captured list" };
@@ -98,8 +118,8 @@ async function selfTestToolsModelExec({ toolDefinitions, timeoutMs, abortSignal,
   for (const n of missing) results.set(n, { ok: false, detail: "not executed" });
 
   const failed = Array.from(results.entries()).filter(([, v]) => v && v.ok === false);
-  const failedOptional = failed.filter(([name]) => OPTIONAL_TOOL_FAILURES.has(name));
-  const failedRequired = failed.filter(([name]) => !OPTIONAL_TOOL_FAILURES.has(name));
+  const failedOptional = failed.filter(([name, v]) => isOptionalAgentsToolFailure(name, v?.detail));
+  const failedRequired = failed.filter(([name, v]) => !isOptionalAgentsToolFailure(name, v?.detail));
   const failedNames = failedRequired.map(([name]) => name).filter(Boolean);
   const failedOptionalNames = failedOptional.map(([name]) => name).filter(Boolean);
   const ok = failedRequired.length === 0;
@@ -129,6 +149,8 @@ async function selfTestToolsModelExec({ toolDefinitions, timeoutMs, abortSignal,
     detail: detailWithOptional,
     failedTools: failedNames.slice(0, 12),
     failedToolsTruncated: failedNames.length > 12,
+    optionalFailedTools: failedOptionalNames.slice(0, 12),
+    optionalFailedToolsTruncated: failedOptionalNames.length > 12,
     toolResults
   };
 }
